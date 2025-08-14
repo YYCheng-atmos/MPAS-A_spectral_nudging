@@ -36,7 +36,7 @@ All modifications are clearly marked, and `.original` files are provided for com
 - An alternate `gaussian_filter` implementation exists for testing, but has high MPI cost.  
 
 **Manual namelist parameters:**  
-- `config_fdda_scheme` - 包含None、analysis，scaled (for setting approximation strength based on grid resolution, see Bullock Jr. et al. 2018)
+- `config_fdda_scheme` - including None、analysis，scaled (for setting approximation strength based on grid resolution, see Bullock Jr. et al. 2018)
 - `config_fdda_uv` - With the variables involved in the approximation turned on, the wind speed needs to be compiled to the Cell center
 - `config_fdda_int` — characteristic timescale (time interval) for nudging target field
 - `n_steps` — number of diffusion iterations (computed from a Python demo mimicking gcm-filter)

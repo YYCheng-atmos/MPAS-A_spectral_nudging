@@ -560,7 +560,6 @@ do diffusion_step = 3, n_steps + 1
       end do
    end do   
 
-     ! 预先存放在fddaten中，用于后续直接进行halo_group的交换
      ! Store final results back into varfddaten
      do i = its, ite
        do k = kts, kte
