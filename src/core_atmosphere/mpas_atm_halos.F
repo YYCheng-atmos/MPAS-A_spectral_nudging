@@ -188,6 +188,16 @@ module mpas_atm_halos
          call mpas_dmpar_exch_group_create(domain, 'physics:qvfddaten')
          call mpas_dmpar_exch_group_add_field(domain, 'physics:qvfddaten', 'rqvfddaten', timeLevel=1, haloLayers=(/1,2/))
        
+         call mpas_dmpar_exch_group_create(domain, 'physics:filtervar_prev')
+         call mpas_dmpar_exch_group_add_field(domain, 'physics:filtervar_prev', 'filtervar_prev', timeLevel=1, haloLayers=(/1,2/))
+       
+         call mpas_dmpar_exch_group_create(domain, 'physics:filtervar_curr')
+         call mpas_dmpar_exch_group_add_field(domain, 'physics:filtervar_curr', 'filtervar_curr', timeLevel=1, haloLayers=(/1,2/))
+       
+         call mpas_dmpar_exch_group_create(domain, 'physics:filtervar_next')
+         call mpas_dmpar_exch_group_add_field(domain, 'physics:filtervar_next', 'filtervar_next', timeLevel=1, haloLayers=(/1,2/))
+
+       
 #endif
 
          !
@@ -334,6 +344,20 @@ module mpas_atm_halos
          call mpas_halo_exch_group_create(domain, 'physics:qvfddaten')
          call mpas_halo_exch_group_add_field(domain, 'physics:qvfddaten', 'rqvfddaten', timeLevel=1, haloLayers=(/1,2/))
          call mpas_halo_exch_group_complete(domain, 'physics:qvfddaten')
+
+         call mpas_halo_exch_group_create(domain, 'physics:filtervar_prev')
+         call mpas_halo_exch_group_add_field(domain, 'physics:filtervar_prev', 'filtervar_prev', timeLevel=1, haloLayers=(/1,2/))
+         call mpas_halo_exch_group_complete(domain, 'physics:filtervar_prev')
+
+         call mpas_halo_exch_group_create(domain, 'physics:filtervar_curr')
+         call mpas_halo_exch_group_add_field(domain, 'physics:filtervar_curr', 'filtervar_curr', timeLevel=1, haloLayers=(/1,2/))
+         call mpas_halo_exch_group_complete(domain, 'physics:filtervar_curr')
+
+         call mpas_halo_exch_group_create(domain, 'physics:filtervar_next')
+         call mpas_halo_exch_group_add_field(domain, 'physics:filtervar_next', 'filtervar_next', timeLevel=1, haloLayers=(/1,2/))
+         call mpas_halo_exch_group_complete(domain, 'physics:filtervar_next')
+
+
 #endif
 
          !
@@ -424,6 +448,9 @@ module mpas_atm_halos
          call mpas_dmpar_exch_group_destroy(domain, 'physics:uvfddaten')
          call mpas_dmpar_exch_group_destroy(domain, 'physics:thfddaten')
          call mpas_dmpar_exch_group_destroy(domain, 'physics:qvfddaten')
+         call mpas_dmpar_exch_group_destroy(domain, 'physics:filtervar_prev')
+         call mpas_dmpar_exch_group_destroy(domain, 'physics:filtervar_curr')
+         call mpas_dmpar_exch_group_destroy(domain, 'physics:filtervar_next')
 #endif
 
       else if (trim(config_halo_exch_method) == 'mpas_halo') then
@@ -463,6 +490,9 @@ module mpas_atm_halos
          call mpas_halo_exch_group_destroy(domain, 'physics:uvfddaten')
          call mpas_halo_exch_group_destroy(domain, 'physics:thfddaten')
          call mpas_halo_exch_group_destroy(domain, 'physics:qvfddaten')
+         call mpas_halo_exch_group_destroy(domain, 'physics:filtervar_prev')
+         call mpas_halo_exch_group_destroy(domain, 'physics:filtervar_curr')
+         call mpas_halo_exch_group_destroy(domain, 'physics:filtervar_next')
 #endif
 
          call mpas_halo_finalize(domain)

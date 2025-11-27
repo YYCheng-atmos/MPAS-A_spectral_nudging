@@ -938,6 +938,10 @@
 			<var name="rqvfddaten"/>
 			<var name="rufddaten"/>
 			<var name="rvfddaten"/>
+			<var name="filtervar_prev"/>
+			<var name="filtervar_curr"/>
+			<var name="filtervar_next"/>
+			<var name="laplacian_term"/>
 			<var name="th_fdda_old"/>
 			<var name="qv_fdda_old"/>
 			<var name="u_fdda_old"/>
@@ -1665,11 +1669,6 @@
                 <var name="th_fdda_old"      type="real"  dimensions="nVertLevels nCells Time"/>
                 <var name="u_fdda_old"       type="real"  dimensions="nVertLevels nCells Time"/>
                 <var name="v_fdda_old"       type="real"  dimensions="nVertLevels nCells Time"/>
-                <var name="filtervar_prev"   type="real"  dimensions="nVertLevels nCells Time"/>
-                <var name="filtervar_curr"   type="real"  dimensions="nVertLevels nCells Time"/>
-                <var name="filtervar_next"   type="real"  dimensions="nVertLevels nCells Time"/>
-                <var name="laplacian_term"   type="real"  dimensions="nVertLevels nCells Time"/>
-                <var name="filtered"         type="real"  dimensions="nVertLevels nCells Time"/>
         </var_struct>
 
 
@@ -3421,7 +3420,12 @@
                 <var name="rqvfddaten"    type="real"     dimensions="nVertLevels nCells Time" default_value="0.0"/>
                 <var name="rufddaten"     type="real"     dimensions="nVertLevels nCells Time" default_value="0.0"/>
                 <var name="rvfddaten"     type="real"     dimensions="nVertLevels nCells Time" default_value="0.0"/>
-                <var name="rufddaten_Edge" type="real"     dimensions="nVertLevels nEdges Time" default_value="0.0"/>
+                <var name="rufddaten_Edge" type="real"    dimensions="nVertLevels nEdges Time" default_value="0.0"/>
+                <var name="filtervar_prev"   type="real"  dimensions="nVertLevels nCells Time" default_value="0.0"/>
+                <var name="filtervar_curr"   type="real"  dimensions="nVertLevels nCells Time" default_value="0.0"/>
+                <var name="filtervar_next"   type="real"  dimensions="nVertLevels nCells Time" default_value="0.0"/>
+                <var name="laplacian_term"   type="real"  dimensions="nVertLevels nCells Time" default_value="0.0"/>
+                <var name="filtered"         type="real"  dimensions="nVertLevels nCells Time" default_value="0.0"/>
 
                 <!-- ================================================================================================== -->
                 <!-- TENDENCIES FROM PARAMETERIZATION OF CLOUD MICROPHYSICS:                                            -->

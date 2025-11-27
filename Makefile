@@ -656,9 +656,9 @@ cray:   # BUILDTARGET Cray Programming Environment
 
 intel:   # BUILDTARGET Intel oneAPI Fortran, C, and C++ compiler suite
 	( $(MAKE) all \
-	"FC_PARALLEL = mpifort" \
-	"CC_PARALLEL = mpicc" \
-	"CXX_PARALLEL = mpic++" \
+	"FC_PARALLEL = mpiifx" \
+	"CC_PARALLEL = mpiicx" \
+	"CXX_PARALLEL = mpiicpx" \
 	"FC_SERIAL = ifx" \
 	"CC_SERIAL = icx" \
 	"CXX_SERIAL = icpx" \

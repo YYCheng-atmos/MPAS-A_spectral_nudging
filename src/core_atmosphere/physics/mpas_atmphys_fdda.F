@@ -167,11 +167,11 @@
  call mpas_pool_get_array(fdda,'th_fdda_new',th_fdda_new)
  call mpas_pool_get_array(fdda,'u_fdda_new', u_fdda_new )
  call mpas_pool_get_array(fdda,'v_fdda_new', v_fdda_new )
- call mpas_pool_get_array(fdda,'filtervar_prev', filtervar_prev )
- call mpas_pool_get_array(fdda,'filtervar_curr', filtervar_curr )
- call mpas_pool_get_array(fdda,'filtervar_next', filtervar_next )
- call mpas_pool_get_array(fdda,'laplacian_term', laplacian_term )
- call mpas_pool_get_array(fdda,'filtered', filtered )
+ call mpas_pool_get_array(tend_physics,'filtervar_prev', filtervar_prev )
+ call mpas_pool_get_array(tend_physics,'filtervar_curr', filtervar_curr )
+ call mpas_pool_get_array(tend_physics,'filtervar_next', filtervar_next )
+ call mpas_pool_get_array(tend_physics,'laplacian_term', laplacian_term )
+ call mpas_pool_get_array(tend_physics,'filtered', filtered )
  call mpas_pool_get_array(tend_physics,'rthfddaten',rthfddaten)
  call mpas_pool_get_array(tend_physics,'rqvfddaten',rqvfddaten)
  call mpas_pool_get_array(tend_physics,'rufddaten' ,rufddaten )
@@ -347,6 +347,9 @@ if (nudging_with_spatial_filter) then
          ENDDO
       ENDDO
 
+      ! call mpas_log_write('> check block filter application rate = $r', realArgs=(/weights_success / (weights_insuccess + weights_success)/))
+      ! call mpas_log_write('> check block filter application success number = $r', realArgs=(/weights_success/))
+      ! call mpas_log_write('> check block filter application insuccess number = $r', realArgs=(/weights_insuccess/))
    endif
    
    
@@ -445,15 +448,8 @@ subroutine apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, k
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
                         varfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)         
 
-!=======================================================================
-!  This subroutine applies diffusion-based spatial filtering 
-!  beyond grid scale (supergrid smoothing).
-!  Developed by Y. Y. Cheng (yycheng), 2025.06
-!  References:
-!    - Grooms et al. (2021), Diffusion-Based Smoothers for Spatial Filtering
-!    - Loose et al. (2022), GCM-Filters: A Python Package for Diffusion-based Filtering
-!    - Bullock Jr. et al. (2018), Analysis Nudging in MPAS-A (v4.0)
-!=======================================================================
+
+   ! use mpas_atm_halos, only: exchange_halo_group
 
   implicit none
 
@@ -488,12 +484,14 @@ subroutine apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, k
 
   inv_s_max = (dx_min / 2.0_RKIND)**2.0 / 2.0_RKIND
 
-  ! Store initial varfddaten into filtervar_prev
-  do i = its, ite
-    do k = kts, kte
-      filtervar_prev(k,i) = varfddaten(k,i)
-    end do
-  end do
+   !   ! Store initial varfddaten into filtervar_prev
+   !   do i = its, ite
+   !     do k = kts, kte
+   !       filtervar_prev(k,i) = varfddaten(k,i)
+   !     end do
+   !   end do
+
+  filtervar_prev(:,:) = varfddaten(:,:)
 
   ! Compute the 2nd-order laplacian filter: filtervar_prev
   laplacian_term(:,:) = 0._RKIND
@@ -527,6 +525,13 @@ do i = its, ite
    end do
 end do
 
+
+! filtervar_prev(:,:) = varfddaten(:,:)
+!$OMP BARRIER
+   call exchange_halo_group(domain, 'physics:filtervar_curr')
+!$OMP BARRIER
+
+
 ! Diffusion steps
 do diffusion_step = 3, n_steps + 1
    
@@ -555,38 +560,44 @@ do diffusion_step = 3, n_steps + 1
       do k = kts, kte
          filtervar_next(k, i) = 2.0_RKIND * (-2.0_RKIND * laplacian_term(k, i) * inv_s_max - filtervar_curr(k, i)) - filtervar_prev(k, i)
          filtered(k, i) = filtered(k, i) + p_dfilter(diffusion_step) * filtervar_next(k, i)
-         filtervar_prev(k, i) = filtervar_curr(k, i)
-         filtervar_curr(k, i) = filtervar_next(k, i)
+         ! filtervar_prev(k, i) = filtervar_curr(k, i)
+         ! filtervar_curr(k, i) = filtervar_next(k, i)
       end do
    end do   
 
-     ! Store final results back into varfddaten
-     do i = its, ite
-       do k = kts, kte
-         varfddaten(k, i) = filtered(k, i)
-       end do
-     end do
+
+!$OMP BARRIER
+   call exchange_halo_group(domain, 'physics:filtervar_curr')
+!$OMP BARRIER
 
 
-   !$OMP BARRIER
-      if(fdda_uv) then
-         call exchange_halo_group(domain, 'physics:uvfddaten')
-      endif
-   !$OMP BARRIER
+filtervar_prev(:, :) = filtervar_curr(:, :)
+filtervar_curr(:, :) = filtervar_next(:, :)
+
+
+   varfddaten(:, :) = filtered(:, :)
+
+!$OMP BARRIER
+   ! 这里只有一个线程会执行
+   if (fdda_uv) then
+      call exchange_halo_group(domain, 'physics:uvfddaten')
+   end if
+
+   if (fdda_t) then
+      call exchange_halo_group(domain, 'physics:thfddaten')
+   end if
+
+   if (fdda_q) then
+      call exchange_halo_group(domain, 'physics:qvfddaten')
+   end if
+!$OMP BARRIER
+
+   filtered(:, :) = varfddaten(:, :)
+
    
-   !$OMP BARRIER
-      if(fdda_t) then
-         call exchange_halo_group(domain, 'physics:thfddaten')
-      endif
-   !$OMP BARRIER
-   
-   !$OMP BARRIER
-      if(fdda_q) then
-         call exchange_halo_group(domain, 'physics:qvfddaten')
-      endif
-   !$OMP BARRIER
-
 end do
+
+
 
   ! Deallocate arrays
 !   deallocate(filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term)

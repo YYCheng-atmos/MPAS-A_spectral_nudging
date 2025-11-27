@@ -103,3 +103,7 @@ yycheng 2025.08
 - Target fields (fddanew) for nudging still need to be extracted via scripts such as atmosphere_init. Many of these scripts are currently manual and are being organized.
 - Some namelist variables are documented in src/core_atmosphere/Registry.xml.
 Please compare with the original Registry.xml for differences.
+
+yycheng 2025.11
+
+- fix halo region, Now there will no longer be high RMSE values for wind speed at the boundaries of the block
