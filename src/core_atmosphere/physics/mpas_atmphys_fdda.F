@@ -7,6 +7,7 @@
  use mpas_atmphys_constants
  use mpas_atmphys_utilities
  use mpas_atmphys_vars
+ use mpas_geometry_utils, only: mpas_distance
 
  use diffusion_filter_coefficients
  
@@ -83,13 +84,21 @@
  
  !local pointers:
  integer,pointer:: index_qv,fdda_t_min_layer,fdda_q_min_layer,fdda_uv_min_layer,n_steps
+ integer,pointer:: fdda_t_max_layer,fdda_q_max_layer,fdda_uv_max_layer
  integer,dimension(:),pointer :: kpbl
  integer,dimension(:),pointer :: nEdgesOnCell
  integer,dimension(:,:),pointer :: edgesOnCell,cellsOnEdge
  real(kind=RKIND),pointer:: fdda_t_coef,fdda_q_coef,fdda_uv_coef,areacellmax
  real(kind=RKIND),pointer:: fdda_int,fdda_scale_min,fdda_scale_max,sigma_gaussianfilter,filter_scale,dx_min
- real(kind=RKIND),pointer:: config_dt
- real(kind=RKIND),dimension(:),pointer    :: dcEdge,xCell,yCell,zCell,invAreaCell,dvEdge,invDcEdge
+ real(kind=RKIND),pointer:: config_dt,sphere_radius
+ real(kind=RKIND),pointer:: config_fdda_mask_lon0,config_fdda_mask_lat0
+ real(kind=RKIND),pointer:: config_fdda_mask_radius,config_fdda_mask_transition
+ real(kind=RKIND),pointer:: config_fdda_mask_radius_x,config_fdda_mask_radius_y
+ real(kind=RKIND),pointer:: config_fdda_mask_rotation
+ real(kind=RKIND),pointer:: config_fdda_mask_lon_min,config_fdda_mask_lon_max
+ real(kind=RKIND),pointer:: config_fdda_mask_lat_min,config_fdda_mask_lat_max
+ real(kind=RKIND),dimension(:),pointer    :: dcEdge,xCell,yCell,zCell,latCell,lonCell
+ real(kind=RKIND),dimension(:),pointer    :: invAreaCell,dvEdge,invDcEdge
  real(kind=RKIND),dimension(:),pointer    :: p_dfilter
  real(kind=RKIND),dimension(:,:),pointer  :: rthfddaten,rqvfddaten
  real(kind=RKIND),dimension(:,:),pointer  :: rufddaten,rvfddaten
@@ -104,25 +113,29 @@
  logical,pointer:: fdda_t, fdda_t_in_pbl
  logical,pointer:: fdda_q, fdda_q_in_pbl
  logical,pointer:: fdda_uv,fdda_uv_in_pbl
- logical,pointer:: config_do_restart
+ logical,pointer:: config_do_restart,on_a_sphere,config_fdda_region_mask
  logical,pointer:: nudging_with_spatial_filter,gaussian_filter,diffusion_filter
+ logical,pointer:: diffusion_filter_anisotropic
 
- character (len=StrKIND), pointer:: fdda_scheme,filter_shape
+ character (len=StrKIND), pointer:: fdda_scheme,filter_shape,config_fdda_mask_type
 
 !local variables:
  integer, pointer  :: nCells, nEdges, nVertLevels, maxEdges
  real(kind=RKIND)  :: tfrac, next_tfrac
  real(kind=RKIND)  :: t_target,q_target,u_target,v_target
  real(kind=RKIND)  :: rufddaten_temp,rvfddaten_temp,sum_weights,weights_insuccess,weights_success,distance_2cells,weight
- real(kind=RKIND)  :: sfac
+ real(kind=RKIND)  :: sfac,dist_center,pi_rkind,lon0_rad,lat0_rad,lon_diff
+ real(kind=RKIND)  :: east_dist,north_dist,ellipse_radius_x,ellipse_radius_y
+ real(kind=RKIND)  :: box_lon_width,box_lon_center,box_lat_min,box_lat_max
+ real(kind=RKIND)  :: box_lat_center,box_half_width_x,box_half_width_y
  real(kind=RKIND)  :: theta_p
- real(kind=RKIND)  :: srange
  real(kind=RKIND)  :: edge_sign,inv_s_max,kappacell,kappacell1,kappacell2
+ real(kind=RKIND), dimension(3) :: center_xyz, cell_xyz
+ real(kind=RKIND), dimension(:), allocatable :: fdda_region_mask
 
  integer :: i,k,filter_iCell,diffusion_step,filter_iEdge,cell1,cell2
 
  logical :: first_call = .true.
-
 !local parameters:
  real(kind=RKIND),parameter:: rvrd   = R_v/R_d
 
@@ -144,6 +157,9 @@
  call mpas_pool_get_config(configs,'config_fdda_t_min_layer',fdda_t_min_layer)
  call mpas_pool_get_config(configs,'config_fdda_q_min_layer',fdda_q_min_layer)
  call mpas_pool_get_config(configs,'config_fdda_uv_min_layer',fdda_uv_min_layer)
+ call mpas_pool_get_config(configs,'config_fdda_t_max_layer',fdda_t_max_layer)
+ call mpas_pool_get_config(configs,'config_fdda_q_max_layer',fdda_q_max_layer)
+ call mpas_pool_get_config(configs,'config_fdda_uv_max_layer',fdda_uv_max_layer)
  call mpas_pool_get_config(configs,'config_fdda_t_coef',fdda_t_coef)
  call mpas_pool_get_config(configs,'config_fdda_q_coef',fdda_q_coef)
  call mpas_pool_get_config(configs,'config_fdda_uv_coef',fdda_uv_coef)
@@ -152,12 +168,26 @@
  call mpas_pool_get_config(configs,'config_nudging_with_spatial_filter',nudging_with_spatial_filter)
  call mpas_pool_get_config(configs,'config_gaussian_filter',gaussian_filter)
  call mpas_pool_get_config(configs,'config_diffusion_filter',diffusion_filter)
+ call mpas_pool_get_config(configs,'config_fdda_diffusion_anisotropic',diffusion_filter_anisotropic)
  call mpas_pool_get_config(configs,'sigma_gaussianfilter',sigma_gaussianfilter)
  call mpas_pool_get_config(configs,'config_filter_scale',filter_scale)
  call mpas_pool_get_config(configs,'config_dx_min',dx_min)
  call mpas_pool_get_config(configs,'config_n_steps',n_steps)
  call mpas_pool_get_config(configs,'config_filter_shape',filter_shape)
  call mpas_pool_get_config(configs,'config_areacellmax',areacellmax)
+ call mpas_pool_get_config(configs,'config_fdda_region_mask',config_fdda_region_mask)
+ call mpas_pool_get_config(configs,'config_fdda_mask_type',config_fdda_mask_type)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lon0',config_fdda_mask_lon0)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lat0',config_fdda_mask_lat0)
+ call mpas_pool_get_config(configs,'config_fdda_mask_radius',config_fdda_mask_radius)
+ call mpas_pool_get_config(configs,'config_fdda_mask_radius_x',config_fdda_mask_radius_x)
+ call mpas_pool_get_config(configs,'config_fdda_mask_radius_y',config_fdda_mask_radius_y)
+ call mpas_pool_get_config(configs,'config_fdda_mask_rotation',config_fdda_mask_rotation)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lon_min',config_fdda_mask_lon_min)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lon_max',config_fdda_mask_lon_max)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lat_min',config_fdda_mask_lat_min)
+ call mpas_pool_get_config(configs,'config_fdda_mask_lat_max',config_fdda_mask_lat_max)
+ call mpas_pool_get_config(configs,'config_fdda_mask_transition',config_fdda_mask_transition)
 
  call mpas_pool_get_array(fdda,'qv_fdda_old',qv_fdda_old)
  call mpas_pool_get_array(fdda,'th_fdda_old',th_fdda_old)
@@ -180,6 +210,8 @@
  call mpas_pool_get_array(mesh,'xCell',xCell)
  call mpas_pool_get_array(mesh,'yCell',yCell)
  call mpas_pool_get_array(mesh,'zCell',zCell)
+ call mpas_pool_get_array(mesh,'latCell',latCell)
+ call mpas_pool_get_array(mesh,'lonCell',lonCell)
  call mpas_pool_get_array(mesh,'nEdgesOnCell',nEdgesOnCell)
  call mpas_pool_get_array(mesh,'edgesOnCell',edgesOnCell)
  call mpas_pool_get_array(mesh,'invAreaCell',invAreaCell)
@@ -198,9 +230,82 @@
  call mpas_pool_get_dimension(mesh, 'nEdges', nEdges)
  call mpas_pool_get_dimension(mesh, 'maxEdges', maxEdges)
 
+ call mpas_pool_get_config(mesh, 'on_a_sphere', on_a_sphere)
+ call mpas_pool_get_config(mesh, 'sphere_radius', sphere_radius)
+
  call mpas_pool_get_array(state,'theta_m',theta_m,time_lev)
  call mpas_pool_get_array(state,'scalars',scalars,time_lev)
  qv => scalars(index_qv,:,:)
+
+! build the horizontal FDDA mask, using 1.0 inside the selected region and 0.0 outside
+ if (config_fdda_region_mask) then
+   if (.not. allocated(fdda_region_mask)) allocate(fdda_region_mask(nCells))
+      pi_rkind = acos(-1.0_RKIND)
+      lon0_rad = config_fdda_mask_lon0 * pi_rkind / 180.0_RKIND
+      lat0_rad = config_fdda_mask_lat0 * pi_rkind / 180.0_RKIND
+
+      select case (trim(config_fdda_mask_type))
+         case ("scaled")
+            do i = 1, nCells
+               fdda_region_mask(i) = resolution_taper_weight(dcEdge(i), fdda_scale_min, fdda_scale_max)
+            enddo
+
+         case ("circle")
+            center_xyz(1) = sphere_radius * cos(lat0_rad) * cos(lon0_rad)
+            center_xyz(2) = sphere_radius * cos(lat0_rad) * sin(lon0_rad)
+            center_xyz(3) = sphere_radius * sin(lat0_rad)
+
+            do i = 1, nCells
+               cell_xyz(1) = xCell(i)
+               cell_xyz(2) = yCell(i)
+               cell_xyz(3) = zCell(i)
+               dist_center = mpas_distance(cell_xyz, center_xyz, on_a_sphere)
+               fdda_region_mask(i) = radial_taper_weight(dist_center, config_fdda_mask_radius, &
+                                                       config_fdda_mask_transition)
+            enddo
+
+         case ("ellipse")
+            ellipse_radius_x = config_fdda_mask_radius_x
+            ellipse_radius_y = config_fdda_mask_radius_y
+            if (ellipse_radius_x <= 0.0_RKIND) ellipse_radius_x = config_fdda_mask_radius
+            if (ellipse_radius_y <= 0.0_RKIND) ellipse_radius_y = config_fdda_mask_radius
+
+            do i = 1, nCells
+               lon_diff = shortest_lon_diff_rad(lonCell(i), lon0_rad)
+               east_dist = sphere_radius * cos(lat0_rad) * lon_diff
+               north_dist = sphere_radius * (latCell(i) - lat0_rad)
+               fdda_region_mask(i) = ellipse_taper_weight(east_dist, north_dist, &
+                    ellipse_radius_x, ellipse_radius_y, config_fdda_mask_rotation, &
+                    config_fdda_mask_transition)
+            enddo
+
+         case ("box")
+            box_lon_width = config_fdda_mask_lon_max - config_fdda_mask_lon_min
+            if (box_lon_width < 0.0_RKIND) box_lon_width = box_lon_width + 360.0_RKIND
+            if (box_lon_width <= 0.0_RKIND) box_lon_width = 360.0_RKIND
+            box_lon_center = wrap_lon_rad((config_fdda_mask_lon_min + 0.5_RKIND * box_lon_width) * &
+                 pi_rkind / 180.0_RKIND)
+            box_lon_width = box_lon_width * pi_rkind / 180.0_RKIND
+
+            box_lat_min = min(config_fdda_mask_lat_min, config_fdda_mask_lat_max) * pi_rkind / 180.0_RKIND
+            box_lat_max = max(config_fdda_mask_lat_min, config_fdda_mask_lat_max) * pi_rkind / 180.0_RKIND
+            box_lat_center = 0.5_RKIND * (box_lat_min + box_lat_max)
+            box_half_width_x = 0.5_RKIND * sphere_radius * abs(cos(box_lat_center)) * box_lon_width
+            box_half_width_y = 0.5_RKIND * sphere_radius * max(0.0_RKIND, box_lat_max - box_lat_min)
+
+            do i = 1, nCells
+               lon_diff = shortest_lon_diff_rad(lonCell(i), box_lon_center)
+               east_dist = sphere_radius * cos(box_lat_center) * lon_diff
+               north_dist = sphere_radius * (latCell(i) - box_lat_center)
+               fdda_region_mask(i) = box_taper_weight(east_dist, north_dist, &
+                    box_half_width_x, box_half_width_y, config_fdda_mask_transition)
+            enddo
+
+         case default
+            call mpas_log_write('WARNING: unknown config_fdda_mask_type; FDDA region mask is set to one.')
+            fdda_region_mask(:) = 1.0_RKIND
+      end select
+ endif
 
 !check to see if 'old' FDDA target values need to be defined from initial conditions
  if(first_call .and. .not. config_do_restart) then
@@ -222,18 +327,12 @@
 
     case ("scaled")
 
-       srange = fdda_scale_max-fdda_scale_min
-
        DO i=its,ite
 
-          if (dcEdge(i) .lt. fdda_scale_max) then
-             if (dcEdge(i) .lt. fdda_scale_min) then
-                sfac = 0.0
-             else
-                sfac = (dcEdge(i)-fdda_scale_min)/srange
-             endif
+          if (config_fdda_region_mask .and. trim(config_fdda_mask_type) == "scaled") then
+             sfac = 1.0_RKIND
           else
-             sfac = 1.0
+             sfac = resolution_taper_weight(dcEdge(i), fdda_scale_min, fdda_scale_max)
           endif
 
        DO k=kts,kte
@@ -241,21 +340,24 @@
          ! Theta_m is already the moisture potential temperature, don't add rvrd to theta_p or it will cause instability
          theta_p = theta_m(k,i)
          
-         if (fdda_t .and. k.gt.fdda_t_min_layer .and. (fdda_t_in_pbl .or. k.gt.kpbl(i))) then
+         if (fdda_t .and. fdda_layer_enabled(k, fdda_t_min_layer, fdda_t_max_layer) .and. &
+             (fdda_t_in_pbl .or. k.gt.kpbl(i))) then
             t_target = (1.0-tfrac)*th_fdda_old(k,i)+tfrac*th_fdda_new(k,i)
             rthfddaten(k,i) = fdda_t_coef * ( t_target - theta_p ) * sfac
          else
              rthfddaten(k,i) = 0.
             endif
             
-            if (fdda_q .and. k.gt.fdda_q_min_layer .and. (fdda_q_in_pbl .or. k.gt.kpbl(i))) then
+            if (fdda_q .and. fdda_layer_enabled(k, fdda_q_min_layer, fdda_q_max_layer) .and. &
+                (fdda_q_in_pbl .or. k.gt.kpbl(i))) then
                q_target = (1.0-tfrac)*qv_fdda_old(k,i)+tfrac*qv_fdda_new(k,i)
                rqvfddaten(k,i) = fdda_q_coef * ( q_target - qv(k,i) ) * sfac
             else
                rqvfddaten(k,i) = 0.
             endif
             
-            if (fdda_uv .and. k.gt.fdda_uv_min_layer .and. (fdda_uv_in_pbl .or. k.gt.kpbl(i))) then
+            if (fdda_uv .and. fdda_layer_enabled(k, fdda_uv_min_layer, fdda_uv_max_layer) .and. &
+                (fdda_uv_in_pbl .or. k.gt.kpbl(i))) then
                u_target = (1.0-tfrac)*u_fdda_old(k,i)+tfrac*u_fdda_new(k,i)
                rufddaten(k,i) = fdda_uv_coef * ( u_target - u(k,i) ) * sfac
                v_target = (1.0-tfrac)*v_fdda_old(k,i)+tfrac*v_fdda_new(k,i)
@@ -277,21 +379,24 @@
           !  theta_p = theta_m(k,i) / (1._RKIND + rvrd * qv(k,i))
           theta_p = theta_m(k,i)
 
-          if (fdda_t .and. k.gt.fdda_t_min_layer .and. (fdda_t_in_pbl .or. k.gt.kpbl(i))) then
+          if (fdda_t .and. fdda_layer_enabled(k, fdda_t_min_layer, fdda_t_max_layer) .and. &
+              (fdda_t_in_pbl .or. k.gt.kpbl(i))) then
              t_target = (1.0-tfrac)*th_fdda_old(k,i)+tfrac*th_fdda_new(k,i)
              rthfddaten(k,i) = fdda_t_coef * ( t_target - theta_p )
           else
              rthfddaten(k,i) = 0.
           endif
 
-          if (fdda_q .and. k.gt.fdda_q_min_layer .and. (fdda_q_in_pbl .or. k.gt.kpbl(i))) then
+          if (fdda_q .and. fdda_layer_enabled(k, fdda_q_min_layer, fdda_q_max_layer) .and. &
+              (fdda_q_in_pbl .or. k.gt.kpbl(i))) then
              q_target = (1.0-tfrac)*qv_fdda_old(k,i)+tfrac*qv_fdda_new(k,i)
              rqvfddaten(k,i) = fdda_q_coef * ( q_target - qv(k,i) )
           else
              rqvfddaten(k,i) = 0.
           endif
 
-          if (fdda_uv .and. k.gt.fdda_uv_min_layer .and. (fdda_uv_in_pbl .or. k.gt.kpbl(i))) then
+          if (fdda_uv .and. fdda_layer_enabled(k, fdda_uv_min_layer, fdda_uv_max_layer) .and. &
+              (fdda_uv_in_pbl .or. k.gt.kpbl(i))) then
              u_target = (1.0-tfrac)*u_fdda_old(k,i)+tfrac*u_fdda_new(k,i)
              rufddaten(k,i) = fdda_uv_coef * ( u_target - u(k,i) )
              v_target = (1.0-tfrac)*v_fdda_old(k,i)+tfrac*v_fdda_new(k,i)
@@ -357,9 +462,8 @@ if (nudging_with_spatial_filter) then
       ! diffusion-based filter from Grooms et al. 2021
       call mpas_log_write('> start diffusion-based filter')
       
-      ! The anisotropic coefficient, defined on the basis of Cell area
-      ! takes into account the square approximation of ratio and resolution to achieve similar filter scale at different locations
-      ! dx_min is defined in terms of the largest grid spacing and considers dx_min * * 2 to be the largest area cell
+      ! The default Laplacian is isotropic. When requested, the anisotropic coefficient
+      ! is scaled by Cell area to keep a similar filter scale across variable-resolution meshes.
       
 
       allocate(p_dfilter(n_steps+1))
@@ -376,7 +480,8 @@ if (nudging_with_spatial_filter) then
          call mpas_log_write('Max rufddaten before filter : $r', realArgs=(/maxval(rufddaten)/))
          call apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, kts, kte, dx_min, p_dfilter, n_steps, areacellmax, invAreaCell, nEdgesOnCell, &
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
-                        rufddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)                           
+                        rufddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q, &
+                        diffusion_filter_anisotropic)
                         
          !----------- apply diffusion-based filter : rvfddaten -----------!
          filtered(:,:)       = 0._RKIND
@@ -387,7 +492,8 @@ if (nudging_with_spatial_filter) then
          call mpas_log_write('Max rvfddaten before filter : $r', realArgs=(/maxval(rvfddaten)/))
          call apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, kts, kte, dx_min, p_dfilter, n_steps, areacellmax, invAreaCell, nEdgesOnCell, &
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
-                        rvfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)                           
+                        rvfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q, &
+                        diffusion_filter_anisotropic)
 
       endif
                      
@@ -401,7 +507,8 @@ if (nudging_with_spatial_filter) then
          call mpas_log_write('Max rthfddaten before filter : $r', realArgs=(/maxval(rthfddaten)/))
          call apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, kts, kte, dx_min, p_dfilter, n_steps, areacellmax, invAreaCell, nEdgesOnCell, &
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
-                        rthfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)                           
+                        rthfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q, &
+                        diffusion_filter_anisotropic)
       endif
       
       if (fdda_q) then
@@ -414,12 +521,28 @@ if (nudging_with_spatial_filter) then
          call mpas_log_write('Max rqvfddaten before filter : $r', realArgs=(/maxval(rqvfddaten)/))
          call apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, kts, kte, dx_min, p_dfilter, n_steps, areacellmax, invAreaCell, nEdgesOnCell, &
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
-                        rqvfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)                           
+                        rqvfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q, &
+                        diffusion_filter_anisotropic)
       endif
 
       deallocate(p_dfilter)
    endif
 endif
+
+ ! re-apply region mask after spatial filtering so outside-mask tendency remains zero
+if (config_fdda_region_mask) then
+   if (fdda_uv) then
+      call apply_region_mask_to_tendency(rufddaten, fdda_region_mask, its, ite, kts, kte)
+      call apply_region_mask_to_tendency(rvfddaten, fdda_region_mask, its, ite, kts, kte)
+   endif
+   if (fdda_t) then
+      call apply_region_mask_to_tendency(rthfddaten, fdda_region_mask, its, ite, kts, kte)
+   endif
+   if (fdda_q) then
+      call apply_region_mask_to_tendency(rqvfddaten, fdda_region_mask, its, ite, kts, kte)
+   endif
+endif
+
 
 !check to see if this is the last time step within the current FDDA target data interval and 
 !if so, save the current "new" targets as the "old" targets for the next time step
@@ -444,9 +567,156 @@ endif
 
 
 
+pure logical function fdda_layer_enabled(k, min_layer, max_layer)
+   implicit none
+   integer, intent(in) :: k, min_layer, max_layer
+
+   fdda_layer_enabled = k > min_layer
+   if (max_layer > 0) fdda_layer_enabled = fdda_layer_enabled .and. k <= max_layer
+end function fdda_layer_enabled
+
+
+pure real(kind=RKIND) function resolution_taper_weight(dx, scale_min, scale_max)
+   implicit none
+   real(kind=RKIND), intent(in) :: dx, scale_min, scale_max
+
+   if (scale_max <= scale_min) then
+      if (dx >= scale_max) then
+         resolution_taper_weight = 1.0_RKIND
+      else
+         resolution_taper_weight = 0.0_RKIND
+      endif
+   else if (dx <= scale_min) then
+      resolution_taper_weight = 0.0_RKIND
+   else if (dx >= scale_max) then
+      resolution_taper_weight = 1.0_RKIND
+   else
+      resolution_taper_weight = (dx - scale_min) / (scale_max - scale_min)
+   endif
+end function resolution_taper_weight
+
+
+pure real(kind=RKIND) function radial_taper_weight(dist, radius_outer, transition_width)
+   implicit none
+   real(kind=RKIND), intent(in) :: dist, radius_outer, transition_width
+   real(kind=RKIND) :: radius_inner, pi_rkind
+
+   pi_rkind = acos(-1.0_RKIND)
+
+   if (transition_width <= 0.0_RKIND) then
+      if (dist <= radius_outer) then
+         radial_taper_weight = 1.0_RKIND
+      else
+         radial_taper_weight = 0.0_RKIND
+      endif
+      return
+   endif
+
+   radius_inner = max(0.0_RKIND, radius_outer - transition_width)
+
+   if (dist <= radius_inner) then
+      radial_taper_weight = 1.0_RKIND
+   else if (dist >= radius_outer) then
+      radial_taper_weight = 0.0_RKIND
+   else
+      radial_taper_weight = 0.5_RKIND * (1.0_RKIND + &
+           cos(pi_rkind * (dist - radius_inner) / transition_width))
+   endif
+end function radial_taper_weight
+
+
+pure real(kind=RKIND) function wrap_lon_rad(lon)
+   implicit none
+   real(kind=RKIND), intent(in) :: lon
+   real(kind=RKIND) :: pi_rkind
+
+   pi_rkind = acos(-1.0_RKIND)
+   wrap_lon_rad = modulo(lon + pi_rkind, 2.0_RKIND * pi_rkind) - pi_rkind
+end function wrap_lon_rad
+
+
+pure real(kind=RKIND) function shortest_lon_diff_rad(lon, lon0)
+   implicit none
+   real(kind=RKIND), intent(in) :: lon, lon0
+
+   shortest_lon_diff_rad = wrap_lon_rad(lon - lon0)
+end function shortest_lon_diff_rad
+
+
+pure real(kind=RKIND) function ellipse_taper_weight(east_dist, north_dist, radius_x, radius_y, &
+      rotation_deg, transition_width)
+   implicit none
+   real(kind=RKIND), intent(in) :: east_dist, north_dist, radius_x, radius_y
+   real(kind=RKIND), intent(in) :: rotation_deg, transition_width
+   real(kind=RKIND) :: angle, x_rot, y_rot, dist_center, unit_x, unit_y, radius_outer, pi_rkind
+
+   ellipse_taper_weight = 0.0_RKIND
+   if (radius_x <= 0.0_RKIND .or. radius_y <= 0.0_RKIND) return
+
+   pi_rkind = acos(-1.0_RKIND)
+   angle = rotation_deg * pi_rkind / 180.0_RKIND
+   x_rot = east_dist * cos(angle) + north_dist * sin(angle)
+   y_rot = -east_dist * sin(angle) + north_dist * cos(angle)
+   dist_center = sqrt(x_rot * x_rot + y_rot * y_rot)
+
+   if (dist_center <= 0.0_RKIND) then
+      ellipse_taper_weight = 1.0_RKIND
+      return
+   endif
+
+   unit_x = x_rot / dist_center
+   unit_y = y_rot / dist_center
+   radius_outer = 1.0_RKIND / sqrt((unit_x / radius_x)**2 + (unit_y / radius_y)**2)
+   ellipse_taper_weight = radial_taper_weight(dist_center, radius_outer, transition_width)
+end function ellipse_taper_weight
+
+
+pure real(kind=RKIND) function box_taper_weight(east_dist, north_dist, half_width_x, half_width_y, &
+      transition_width)
+   implicit none
+   real(kind=RKIND), intent(in) :: east_dist, north_dist, half_width_x, half_width_y, transition_width
+   real(kind=RKIND) :: dist_to_edge, transition, pi_rkind
+
+   box_taper_weight = 0.0_RKIND
+   if (half_width_x <= 0.0_RKIND .or. half_width_y <= 0.0_RKIND) return
+
+   dist_to_edge = min(half_width_x - abs(east_dist), half_width_y - abs(north_dist))
+   if (dist_to_edge < 0.0_RKIND) return
+   if (transition_width <= 0.0_RKIND) then
+      box_taper_weight = 1.0_RKIND
+      return
+   endif
+
+   transition = min(transition_width, min(half_width_x, half_width_y))
+   if (transition <= 0.0_RKIND .or. dist_to_edge >= transition) then
+      box_taper_weight = 1.0_RKIND
+   else
+      pi_rkind = acos(-1.0_RKIND)
+      box_taper_weight = 0.5_RKIND * (1.0_RKIND - cos(pi_rkind * dist_to_edge / transition))
+   endif
+end function box_taper_weight
+
+
+subroutine apply_region_mask_to_tendency(var2d, cell_mask, its, ite, kts, kte)
+   implicit none
+   integer, intent(in) :: its, ite, kts, kte
+   real(kind=RKIND), intent(inout) :: var2d(:,:)
+   real(kind=RKIND), intent(in)    :: cell_mask(:)
+   integer :: i, k
+
+   do i = its, ite
+      do k = kts, kte
+         var2d(k,i) = var2d(k,i) * cell_mask(i)
+      end do
+   end do
+end subroutine apply_region_mask_to_tendency
+
+
+
 subroutine apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, kts, kte, dx_min, p_dfilter, n_steps, areacellmax, invAreaCell, nEdgesOnCell, &
                         edgesOnCell, edgesOnCell_sign, dvEdge, invDcEdge, cellsOnEdge, &
-                        varfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q)         
+                        varfddaten, filtered, filtervar_prev, filtervar_curr, filtervar_next, laplacian_term, fdda_uv, fdda_t, fdda_q, &
+                        diffusion_filter_anisotropic)
 
 
    ! use mpas_atm_halos, only: exchange_halo_group
@@ -465,7 +735,7 @@ subroutine apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, k
   real, intent(in) :: edgesOnCell_sign(:,:)
   real(RKIND), intent(in) :: dvEdge(:), invDcEdge(:)
   integer, intent(in) :: cellsOnEdge(:,:)
-  logical, intent(in) :: fdda_uv, fdda_t, fdda_q
+  logical, intent(in) :: fdda_uv, fdda_t, fdda_q, diffusion_filter_anisotropic
   
   ! Input/output
   type(domain_type),intent(inout):: domain
@@ -495,22 +765,40 @@ subroutine apply_diffusion_based_filter(domain, exchange_halo_group, its, ite, k
 
   ! Compute the 2nd-order laplacian filter: filtervar_prev
   laplacian_term(:,:) = 0._RKIND
-  do filter_iCell = its, ite
-    kappacell = 1.0_RKIND / areacellmax / invAreaCell(filter_iCell)
-    do i = 1, nEdgesOnCell(filter_iCell)
-      filter_iEdge = edgesOnCell(i, filter_iCell)
-      edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * dvEdge(filter_iEdge) * invDcEdge(filter_iEdge) * kappacell
-      cell1 = cellsOnEdge(1, filter_iEdge)
-      cell2 = cellsOnEdge(2, filter_iEdge)
-      kappacell1 = 1.0_RKIND / areacellmax / invAreaCell(cell1)
-      kappacell2 = 1.0_RKIND / areacellmax / invAreaCell(cell2)
-      do k = kts, kte
-        laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + edge_sign * (filtervar_prev(k, cell2) - filtervar_prev(k, cell1)) + &
-                                         (filtervar_prev(k, cell2) - filtervar_prev(k, cell1)) * invDcEdge(filter_iEdge) * &
-                                         (kappacell2 - kappacell1) * invDcEdge(filter_iEdge)
-      end do
-    end do
-  end do
+  if (diffusion_filter_anisotropic) then
+     do filter_iCell = its, ite
+        kappacell = 1.0_RKIND / areacellmax / invAreaCell(filter_iCell)
+        do i = 1, nEdgesOnCell(filter_iCell)
+           filter_iEdge = edgesOnCell(i, filter_iCell)
+           edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * &
+              dvEdge(filter_iEdge) * invDcEdge(filter_iEdge) * kappacell
+           cell1 = cellsOnEdge(1, filter_iEdge)
+           cell2 = cellsOnEdge(2, filter_iEdge)
+           kappacell1 = 1.0_RKIND / areacellmax / invAreaCell(cell1)
+           kappacell2 = 1.0_RKIND / areacellmax / invAreaCell(cell2)
+           do k = kts, kte
+              laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + &
+                 edge_sign * (filtervar_prev(k, cell2) - filtervar_prev(k, cell1)) + &
+                 (filtervar_prev(k, cell2) - filtervar_prev(k, cell1)) * invDcEdge(filter_iEdge) * &
+                 (kappacell2 - kappacell1) * invDcEdge(filter_iEdge)
+           end do
+        end do
+     end do
+  else
+     do filter_iCell = its, ite
+        do i = 1, nEdgesOnCell(filter_iCell)
+           filter_iEdge = edgesOnCell(i, filter_iCell)
+           edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * &
+              dvEdge(filter_iEdge) * invDcEdge(filter_iEdge)
+           cell1 = cellsOnEdge(1, filter_iEdge)
+           cell2 = cellsOnEdge(2, filter_iEdge)
+           do k = kts, kte
+              laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + &
+                 edge_sign * (filtervar_prev(k, cell2) - filtervar_prev(k, cell1))
+           end do
+        end do
+     end do
+  endif
   
   ! Update filtervar_curr and filtered
   do i = its, ite
@@ -537,22 +825,40 @@ do diffusion_step = 3, n_steps + 1
    
    laplacian_term(:,:) = 0._RKIND
 
-   do filter_iCell = its, ite
-      kappacell = 1.0_RKIND / areacellmax / invAreaCell(filter_iCell)
-      do i = 1, nEdgesOnCell(filter_iCell)
-         filter_iEdge = edgesOnCell(i, filter_iCell)
-         edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * dvEdge(filter_iEdge) * invDcEdge(filter_iEdge) * kappacell
-         cell1 = cellsOnEdge(1, filter_iEdge)
-         cell2 = cellsOnEdge(2, filter_iEdge)
-         kappacell1 = 1.0_RKIND / areacellmax / invAreaCell(cell1)
-         kappacell2 = 1.0_RKIND / areacellmax / invAreaCell(cell2)
-         do k = kts, kte
-            laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + edge_sign * (filtervar_curr(k, cell2) - filtervar_curr(k, cell1)) + &
-            (filtervar_curr(k, cell2) - filtervar_curr(k, cell1)) * invDcEdge(filter_iEdge) * &
-            (kappacell2 - kappacell1) * invDcEdge(filter_iEdge)
+   if (diffusion_filter_anisotropic) then
+      do filter_iCell = its, ite
+         kappacell = 1.0_RKIND / areacellmax / invAreaCell(filter_iCell)
+         do i = 1, nEdgesOnCell(filter_iCell)
+            filter_iEdge = edgesOnCell(i, filter_iCell)
+            edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * &
+               dvEdge(filter_iEdge) * invDcEdge(filter_iEdge) * kappacell
+            cell1 = cellsOnEdge(1, filter_iEdge)
+            cell2 = cellsOnEdge(2, filter_iEdge)
+            kappacell1 = 1.0_RKIND / areacellmax / invAreaCell(cell1)
+            kappacell2 = 1.0_RKIND / areacellmax / invAreaCell(cell2)
+            do k = kts, kte
+               laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + &
+                  edge_sign * (filtervar_curr(k, cell2) - filtervar_curr(k, cell1)) + &
+                  (filtervar_curr(k, cell2) - filtervar_curr(k, cell1)) * invDcEdge(filter_iEdge) * &
+                  (kappacell2 - kappacell1) * invDcEdge(filter_iEdge)
+            end do
          end do
       end do
-   end do
+   else
+      do filter_iCell = its, ite
+         do i = 1, nEdgesOnCell(filter_iCell)
+            filter_iEdge = edgesOnCell(i, filter_iCell)
+            edge_sign = invAreaCell(filter_iCell) * edgesOnCell_sign(i, filter_iCell) * &
+               dvEdge(filter_iEdge) * invDcEdge(filter_iEdge)
+            cell1 = cellsOnEdge(1, filter_iEdge)
+            cell2 = cellsOnEdge(2, filter_iEdge)
+            do k = kts, kte
+               laplacian_term(k, filter_iCell) = laplacian_term(k, filter_iCell) + &
+                  edge_sign * (filtervar_curr(k, cell2) - filtervar_curr(k, cell1))
+            end do
+         end do
+      end do
+   endif
 
 
 
@@ -565,34 +871,13 @@ do diffusion_step = 3, n_steps + 1
       end do
    end do   
 
-
-!$OMP BARRIER
-   call exchange_halo_group(domain, 'physics:filtervar_curr')
-!$OMP BARRIER
-
-
-filtervar_prev(:, :) = filtervar_curr(:, :)
-filtervar_curr(:, :) = filtervar_next(:, :)
-
-
-   varfddaten(:, :) = filtered(:, :)
-
-!$OMP BARRIER
-   ! 这里只有一个线程会执行
-   if (fdda_uv) then
-      call exchange_halo_group(domain, 'physics:uvfddaten')
-   end if
-
-   if (fdda_t) then
-      call exchange_halo_group(domain, 'physics:thfddaten')
-   end if
-
-   if (fdda_q) then
-      call exchange_halo_group(domain, 'physics:qvfddaten')
-   end if
-!$OMP BARRIER
-
-   filtered(:, :) = varfddaten(:, :)
+   filtervar_prev(:, :) = filtervar_curr(:, :)
+   filtervar_curr(:, :) = filtervar_next(:, :)
+   
+   !$OMP BARRIER
+      call exchange_halo_group(domain, 'physics:filtervar_curr')
+   !$OMP BARRIER
+   
 
    
 end do

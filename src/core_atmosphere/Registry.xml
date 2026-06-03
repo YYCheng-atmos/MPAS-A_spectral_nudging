@@ -426,6 +426,10 @@
                      units="-"
                      description="If config_fdda_t = .true., lowest layer to nudge potential temperature,"/>
 
+                <nml_option name="config_fdda_t_max_layer" type="integer" default_value="0"
+                     units="-"
+                     description="If config_fdda_t = .true., highest layer to nudge potential temperature; 0 applies no upper limit"/>
+
                 <nml_option name="config_fdda_q" type="logical" default_value="true"
                      units="-"
                      description="Water vapor mixing ratio nudging indicator"
@@ -444,6 +448,10 @@
                      units="-"
                      description="If config_fdda_q = .true., lowest layer to nudge water vapor mixing ratio"/>
 
+                <nml_option name="config_fdda_q_max_layer" type="integer" default_value="0"
+                     units="-"
+                     description="If config_fdda_q = .true., highest layer to nudge water vapor mixing ratio; 0 applies no upper limit"/>
+
                 <nml_option name="config_fdda_uv" type="logical" default_value="true"
                      units="-"
                      description="Wind nudging indicator"
@@ -461,6 +469,10 @@
                      units="-"
                      description="If config_fdda_uv = .true., lowest layer to nudge wind,"/>
 
+                <nml_option name="config_fdda_uv_max_layer" type="integer" default_value="0"
+                     units="-"
+                     description="If config_fdda_uv = .true., highest layer to nudge wind; 0 applies no upper limit"/>
+
                 <nml_option name="config_nudging_with_spatial_filter" type="logical" default_value="false"
                      units="-"
                      description="If config_nudging_with_spatial_filter = .true., apply filter"
@@ -474,6 +486,11 @@
                 <nml_option name="config_diffusion_filter" type="logical" default_value="false"
                      units="-"
                      description="If config_diffusion_filter = .true., apply diffusion-based filter"
+                     possible_values=".true. or .false."/>
+
+                <nml_option name="config_fdda_diffusion_anisotropic" type="logical" default_value="false"
+                     units="-"
+                     description="If true, use area-scaled anisotropic Laplacian in the FDDA diffusion-based filter; otherwise use the default isotropic Laplacian"
                      possible_values=".true. or .false."/>
                
                 <nml_option name="sigma_gaussianfilter" type="real" default_value="200000"
@@ -500,6 +517,60 @@
                 <nml_option name="config_areacellmax" type="real" default_value="9126471680.0"
                      units="-"
                      description="maximum AreaCell from GCM-filter"/>
+
+                <nml_option name="config_fdda_region_mask" type="logical" default_value="false"
+                     units="-"
+                     description="If config_fdda_region_mask = .true., multiply FDDA tendencies by a horizontal mask"
+                     possible_values=".true. or .false."/>
+
+                <nml_option name="config_fdda_mask_type" type="character" default_value="circle"
+                     units="-"
+                     description="Horizontal FDDA mask type. scaled uses config_fdda_scale_min/max; circle uses lon0/lat0/radius; ellipse uses lon0/lat0/radius_x/radius_y/rotation; box uses lon/lat bounds"
+                     possible_values="`scaled', `circle', `ellipse', `box'"/>
+
+                <nml_option name="config_fdda_mask_lon0" type="real" default_value="0.0"
+                     units="degrees"
+                     description="Center longitude for circle and ellipse FDDA masks"/>
+
+                <nml_option name="config_fdda_mask_lat0" type="real" default_value="0.0"
+                     units="degrees"
+                     description="Center latitude for circle and ellipse FDDA masks"/>
+
+                <nml_option name="config_fdda_mask_radius" type="real" default_value="0.0"
+                     units="m"
+                     description="Outer radius for circle FDDA mask"/>
+
+                <nml_option name="config_fdda_mask_radius_x" type="real" default_value="0.0"
+                     units="m"
+                     description="Ellipse semi-axis in the local east-west direction before rotation"/>
+
+                <nml_option name="config_fdda_mask_radius_y" type="real" default_value="0.0"
+                     units="m"
+                     description="Ellipse semi-axis in the local south-north direction before rotation"/>
+
+                <nml_option name="config_fdda_mask_rotation" type="real" default_value="0.0"
+                     units="degrees"
+                     description="Counterclockwise rotation of the ellipse x-axis from local east"/>
+
+                <nml_option name="config_fdda_mask_lon_min" type="real" default_value="-180.0"
+                     units="degrees"
+                     description="Western longitude bound for box FDDA mask"/>
+
+                <nml_option name="config_fdda_mask_lon_max" type="real" default_value="180.0"
+                     units="degrees"
+                     description="Eastern longitude bound for box FDDA mask; values smaller than lon_min cross the dateline"/>
+
+                <nml_option name="config_fdda_mask_lat_min" type="real" default_value="-90.0"
+                     units="degrees"
+                     description="Southern latitude bound for box FDDA mask"/>
+
+                <nml_option name="config_fdda_mask_lat_max" type="real" default_value="90.0"
+                     units="degrees"
+                     description="Northern latitude bound for box FDDA mask"/>
+
+                <nml_option name="config_fdda_mask_transition" type="real" default_value="0.0"
+                     units="m"
+                     description="Taper width inside the outer mask boundary"/>
                          
         </nml_record>
 
